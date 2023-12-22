@@ -1,7 +1,7 @@
 ﻿/*
  * Copy a View
  *
- * Condition: view must be selected
+ * Condition: (at least one) view must be selected
  * Working: Copy visual elements and relations from the original view
  *          Put them in a newly created view with the suffix _copy
  *
