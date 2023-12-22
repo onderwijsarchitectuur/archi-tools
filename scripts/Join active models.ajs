@@ -33,7 +33,7 @@ const  allviews = [] ;
 var loadedModelsList = $.model.getLoadedModels()
 
 if(loadedModelsList.length < 2 ) {
-  window.alert("Nothing to be joined. Please select two or more views");
+  window.alert("Nothing to be joined. There must be two or more active models");
   exit();
 }
 
