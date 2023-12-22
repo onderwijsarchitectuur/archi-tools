@@ -1,0 +1,82 @@
+﻿/*
+ * Find element by internal id 
+ * 
+ * Condition: view must be selected
+ * Working: Dialogbox appears to enter internal id 
+ *          Element or relationship is visualized on view
+ * Error: internal id does not exist
+ *        internal id is an visual object
+ *
+ * (c) Gerald Groot Roessink, 22-12-2023.
+ * 
+ * This work is licensed under the HUMANS Licence described below.
+ * 
+ * The HUMANS (Help Us Make Archi Noteworthy & Sustainable) licence goal is to bring happiness
+ * to both Archi users and developers. 
+ *
+ * The only restrictions that apply are:
+ *  - You can't redistribute this script.
+ *  - You can't use this script for commercial purposes 
+ */ 
+
+
+console.show();
+//console.clear();
+ 
+console.log("Enter internal id");
+
+var select=false; 
+var found=false; 
+selection.filter("view").each(function(view) {
+
+	// ask user for id
+	var input = window.prompt("Please enter internal id ", "id...");
+	var id = "#"+input
+
+	$(id).not('relationship').forEach(function(e) {
+		if(e.concept.id != e.id) {  
+			console.error("not possible, identifier belongs to  visual object"); 
+			exit();		}
+		else {
+			console.log("id = ", e.id, "\nname = ",e.name, "\ntype = ",e.type)
+			view.add(e, 100, 100, -1, -1); //default size
+			found=true; 
+		}
+	})
+
+	$(id).filter('relationship').forEach(function(r) {
+		if(r.concept.id != r.id) {   
+			console.error("not possible, identifier belongs to visual object"); 
+			exit();		}
+		else {
+			console.log("id = ", r.id, "\nsource = ",r.source, "\ntarget=",r.target)
+			var object1 = view.add(r.source, 100, 100, -1, -1); //default size
+			var object2 = view.add(r.target, 200, 200, -1, -1); //default size
+			view.add(r, object1, object2);
+			found=true; 
+		}
+
+	})
+
+
+
+
+	select=true; 
+});
+
+
+
+
+if(!found) {
+	console.log("ID does not exist: "); 
+}
+
+
+
+if(!select) {
+	console.log("Please select a view first"); 
+}
+
+
+
+
