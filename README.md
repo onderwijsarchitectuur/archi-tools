@@ -1,2 +1,2 @@
 # archi-tools
-Scripts and forms tot be used with Archi
+Scripts and forms to be used with Archi
