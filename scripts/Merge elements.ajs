@@ -8,7 +8,7 @@
  * Working: Both elements are shown side-by-side on a pop-up window.
  *          If the user selects one, it will take the place of the other one on diagrams and in relations
  *          If the user selects both, one will take the place of the other one on diagrams and in relations
- *			while and documentation and properties are joined
+ *			while documentation and properties are joined
  *  TO DO: After pop-up return to the same Archi window  
  * 
  * (c) Archi-community 2022
