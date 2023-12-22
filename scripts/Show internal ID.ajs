@@ -1,0 +1,32 @@
+﻿/*
+ * Show internal ID
+ * 
+ * Condition: One element must be selected
+ * Working: Id is retrieved and shownin dialog box
+ *        
+ * This work is licensed under the HUMANS Licence described below.
+ *  
+ * (c) Gerald Groot Roessink, 22-12-2023.
+ *
+ * The HUMANS (Help Us Make Archi Noteworthy & Sustainable) licence goal is to bring happiness
+ * to both Archi users and developers. 
+ *
+ * The only restrictions that apply are:
+ *  - You can't redistribute this script.
+ *  - You can't use this script for commercial purposes 
+ */ 
+
+
+console.show();
+
+if(selection.size() != 1) {
+  window.alert("You have to select one object to run this script.");
+  exit();
+}
+
+selection.each(function(o) {
+
+console.log('Intern ID van element ', o.name, '= ', o.id);
+
+});
+
