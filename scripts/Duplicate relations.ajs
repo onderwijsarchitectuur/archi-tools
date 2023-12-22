@@ -5,7 +5,7 @@
  * Working: Loop through each relation  
  *          Find relation(s) with equal type, source and target
  * 			If found, write relation  in Excel-format
- *          User dialog to decide on name en folder
+ *          User dialog to decide on name en folder of Excel-file
  * Error: No duplicates found
  *        Excel already exists and is locked
  * 
