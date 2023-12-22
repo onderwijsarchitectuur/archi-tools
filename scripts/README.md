@@ -1,1 +1,1 @@
-Scripts to be used woth jArchi-plugin
+Scripts to be used with jArchi-plugin
