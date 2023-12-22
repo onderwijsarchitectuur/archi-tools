@@ -3,9 +3,9 @@
  * 
  * Condition: Excel is installed
  *            (At least) one view is selected
- * Working: Collect all used properties
- *          Loop through alle elements
- * 			Write element and its documentation and properties in Excel-format
+ * Working: Collect all used properties in elements
+ *          Loop through alle elements 
+ * 	    Write element and its documentation and properties in Excel-format
  *          User dialog to decide on name en folder of Excel file.
  * Error: Excel already exists and is locked
  * 
