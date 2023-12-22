@@ -4,7 +4,7 @@
  * Condition: (at least one) view must be selected
  * Working: Copy visual objects from the original view
  *          Select elements and relationship they belong to (business objects seperate)
- *          Put them in a new model and open it.
+ *          Put them in a new called stripped model and open it.
  * 
  * (c) 2022 Gerald Groot Roessink,  2022-12-16
  * 
