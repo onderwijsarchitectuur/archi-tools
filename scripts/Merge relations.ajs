@@ -1,7 +1,5 @@
 ﻿/*
  * Merge relations
- * 
- * Select two relations and merge them 
  *
  * Condition: ID's form two identical relations are known (tip: run script "Duplicate relations")
  * Working: Enter first internal ID in dialog box
