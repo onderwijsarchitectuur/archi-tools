@@ -1,0 +1,29 @@
+﻿// Delete unused (elements and) relationships
+ *
+ *
+ * This script will delete any element or relationship not used in at least one view
+ * This work is licensed under the HUMANS Licence described below.
+ * 
+ * (c) Archi-community 2022
+ * 
+ * The HUMANS (Help Us Make Archi Noteworthy & Sustainable) licence goal is to bring happiness
+ * to both Archi users and developers. 
+ *
+ * The only restrictions that apply are:
+ *  - You can't redistribute this script.
+ *  - You can't use this script for commercial purposes 
+ */ 
+//
+
+var response = window.confirm("This script will delete any element or relationship not used in at least one view. Continue?");
+
+if (!response)
+  exit();
+
+//$("concept").each(function(c) {
+$("relationship").each(function(c) {
+  if($(c).objectRefs().isEmpty()) {
+     console.log (c.type, c.source, c.target);
+     c.delete();
+  }
+});
