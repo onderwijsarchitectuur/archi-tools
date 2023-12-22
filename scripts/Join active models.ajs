@@ -1,8 +1,6 @@
 ﻿/*
  * Join active models
- * 
- * Add  all concepts and views of all active models to a newly created model
- * * 
+ *
  * Condition: There are at least two active models
  * Working: For every active model copy visual objects from the original view
  *          Select elements and relationship they belong to (business objects seperate)
