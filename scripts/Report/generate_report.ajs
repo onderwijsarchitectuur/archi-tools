@@ -1,0 +1,739 @@
+
+/**
+ * generate_report.ajs
+ *
+ * Purpose: To generate report in markdown format with its structure defined in a view
+ *
+ * How to use this script
+ * - select a view and run this script to quickly generate a report of one view
+ * - select a created 'drivingView' and run this script to generate a defined report
+ * - Open the generated markdown file in a markdown viewer (mark text, typora, visual studio code, ..)
+ *
+ * How to create a "drivingView"?
+ * - a driving view is an outline of the report with (visual) groups, notes and view references.
+ *     - Add the property 'drivingView=true' to the view
+ * - define sections and sub sections
+ *     - draw a visual group or a grouping (use groupings if they have meaning in your model)
+ *       - name of the group will be the section title
+ *       - documentation of the group is printed below the title
+ *     - define subsections by embedding groupings
+ * - define a paragraph
+ *     - draw a note
+ *     - the text of the note is printed where the note is drawn
+ * - print an image of a view (archimate view or sketch view)
+ *     - draw a view reference (drag a view from the model tree in the drivingView)
+ *       - a subsection with the name of the view is generated
+ *       - in the subsection the views documentation is printed
+ *       - then an image of the view is printed
+ *       - default a table with all shown elements is printed below the image
+ *
+ * Set properties of the driving view to change the default behavior of the script:
+ *
+ * |      View property     |                       Description                       | Default |
+ * | ---------------------- | ------------------------------------------------------- | ------- |
+ * | drivingView            | A drivingView must have this property (true)            | -       |
+ * | includeTableOfView     | Print for every view a table with elements (true/false) | true    |
+ * | includeTableOfAllViews | Print a table with all elements (true/false)            | false   |
+ * | tableOneLineDoc        | Shorten element documentation (true/false)              | false   |
+ * | renderViewFormat       | Image format (svg or png)                               | svg     |
+ * | renderViewScale        | Resolution of generated PNG images (1 to 4)             | 2       |
+ * | paragraphNumber        | Generate paragraph numbers (true/false)                 | false   |
+ * | path                   | Path for saving markdown (pop-up if not set)            | -       |
+ * | author                 | Name of author                                          | -       |
+ * | organisation           | Name of organisation                                    | -       |
+ *
+ * Based on the script from Richard Heward - Tame Blue Lion Ltd
+ * See blog for a more detailed explaination. https://www.tamebluelion.co.uk/archimate-documentation
+ *
+ * Mark Backer: 8-Oct-2019
+ * - Structured to own liking
+ * - Follow structure of drivingView left to right and top to bottom like reading (no need for triggering relations)
+ * - Output view elements in a hierarchic HTML table
+ * - Option to output a table with all elements of all views
+ * Mark Backer: sept 2021
+ * - use showdown for converting markdown strings to html strings
+ * - option to print only first paragraph of element documentation in a table
+ * - center and scale images
+ * Mark Backer: oct 2021
+ * - added option renderViewFormat to render images in svg or png (default is svg)
+ * - Archi 4.9 and jArchi 1.2 required for rendering .svg
+ * - removed option renderViewEmbed
+ * Gerald Groot Roessink: mrt 2026
+ * - Replace hard returns in documentation of driving view,  grouping elements and text of notes.
+ */
+
+
+console.log(`require showdown`);
+const showdown = require('../_Libs/showdown.min.js');
+console.log(`require ascii-table`);
+const AsciiTable = require('../_Libs/ascii-table.min.js');
+
+
+const FILE_UNVALID_CHAR = /[&\/\\#+()$~%'":;,*?<>{} ]/g;
+const FILENAME_SPLIT = /^.*[\\\/]/;
+const SCRIPT_NAME = __FILE__.replace(FILENAME_SPLIT, "");
+
+// Show output in the console
+console.show();
+console.clear();
+console.log(`Running script "${SCRIPT_NAME}"`);
+
+try {
+    let report = new Object();
+
+    console.log(`Selected "${selection.first()}"`);
+    let view = selection.filter("archimate-diagram-model").first();
+    if (view) {
+        let settings = getSettings(view);
+        getFilename(settings, view);
+
+        if (settings.path.value) {
+            let markdownString = "";
+            if (settings.drivingView.value) {
+                markdownString = generate_drivingView_report(report, settings, view);
+            } else {
+                markdownString = generate_view_report(settings, view);
+            }
+            saveReport(settings, markdownString);
+        } else {
+            console.log("\nCanceled");
+        }
+    } else {
+        console.log("Please select a View");
+    }
+} catch (error) {
+    console.error(`> ${typeof error.stack == "undefined" ? error : error.stack}`);
+}
+console.log(`\nScript "${SCRIPT_NAME}" finished`);
+
+/**
+ * generate a view report in a markdown string
+ *
+ * @param settings object with report settings
+ * @param view Archi view to be documented
+ * @returns string with report in markdown format
+ */
+function generate_view_report(settings, view) {
+
+    let markdownString = `## ${view.name}\n`;
+    markdownString += view.documentation ? `${view.documentation}\n\n` : "";
+    markdownString += printView(settings, view);
+    markdownString += printTableHierarchic(settings, view);
+
+    return markdownString;
+}
+
+/**
+ * generate a structured report in a markdown string
+ *
+ * @param report object for passing on markdown strings
+ * @param settings object with report settings
+ * @param drivingView Archi view with definition of the document structure
+ * @returns string with report in markdown format
+ */
+function generate_drivingView_report(report, settings, drivingView) {
+    console.log(`Processing drivingView "${drivingView.name}"`);
+
+    // Initialize document object
+    report.content = "---\n";
+    report.content += "## Inhoudsopgave\n\n";
+    report.body = "";
+
+    // First level is a view, not an element > start with level = 0.
+    reportStructure(report, settings, 0, "", drivingView);
+
+    if (settings.includeTableOfAllViews.value) {
+        //  * Generate page with TableOfAllViews
+        var allViewTable = new Object();
+        allViewTable.name = "Bijlage: alle elementen";
+        allViewTable.documentation = "";
+
+        addSection(report, settings, 1, "A.", allViewTable, "bijlage");
+        report.body += printTableAllViews(settings, drivingView);
+    }
+    let markdownString = firstPage(settings, drivingView);
+    markdownString += report.content;
+    markdownString += "\n";
+    markdownString += report.body;
+    console.log();
+
+    return markdownString;
+}
+
+/**
+ *   this recursive function reads the report structure from the driving view
+ *   -  follow the elements on the driving view from top left to the bottom right
+ *   -  recurse into groups with embedded elements
+ *     - print (visual) groups as sectionheaders
+ *     - print viewReferences
+ *     - print notes
+ *
+ * @param report object for passing on markdown strings
+ * @param settings object with report settings
+ * @param pLevel     number with recursion depth, used for logging and paragraph numbers
+ * @param pParagraphNr   string with paragraph number
+ * @param pObject     visual object to traverse, start with drivingView
+ */
+function reportStructure(report, settings, pLevel, pParagraphNr, pObject) {
+    // scope of childArray is this function and all recursions
+    var childArray = [];
+
+    // add text of note to the current paragraph in the report
+    if (pObject.type == "diagram-model-note") {  
+
+        //replace hard returns in text of note for markdown consistency 
+        var text = pObject.text ;
+        text = text.replace(/\r\n/g, '\n\n');
+        report.body += text;
+        report.body += `\n\n`;
+        // old:  report.body += `${pObject.text}\n\n`;
+
+        console.log(`${">".repeat(pLevel)} note: insert text`);
+    } else {
+        // add referenced view to the current paragraph in the report
+        if (
+            pObject.type == "diagram-model-reference" || // viewReference should have this type, but has not
+            (pObject.type == "archimate-diagram-model" && pObject.view) || // work around, test for "diagram-model-reference"
+            (pObject.type == "canvas-model" && pObject.view) // canvas view
+        ) {
+            addSection(report, settings, pLevel, pParagraphNr, pObject, "view");
+
+            // Print the view.
+            view = pObject.getRefView();
+            report.body += printView(settings, view);
+
+            // Print a table with the views elements, if includeTableView is set.
+            // "canvas-model" views don't have elements, so skip
+            if (settings.includeTableOfView.value && pObject.type != "canvas-model") {
+                report.body += printTableHierarchic(settings, view);
+            }
+        } else {
+            // Check for subparagraphs and recurse into subparagraph
+            if (
+                (pObject.type == "archimate-diagram-model" && !pObject.view) || // driving view or
+                pObject.type == "diagram-model-group" || // visual group or
+                pObject.type == "grouping"
+            ) {
+                // skip pLevel 0, this is the drivingview
+                if (pLevel > 0) {
+                    addSection(report, settings, pLevel, pParagraphNr, pObject, "group");
+                }
+
+                // console.log(`${">".repeat(pLevel+1)} ${pObject.name}`)
+                // select all embedded (visual) elements. Skip relations
+                let childrenCollection = $(`#${pObject.id}`).children().not("relation");
+
+                // stop if element has no children
+                if (childrenCollection.size() > 0) {
+                    // console.log(`${">".repeat(pLevel)} ${childrenCollection.size()} Children`)
+
+                    childrenCollection.each(function (c) {
+                        childArray.push(c);
+                    });
+                    // Sort array of embedded children from left to right
+                    childArray.sort(sortPosition);
+
+                    for (let i = 0; i < childArray.length; i++) {
+                        reportStructure(report, settings, pLevel + 1, `${pParagraphNr}${i + 1}.`, childArray[i]);
+                    }
+                }
+            }
+        }
+    }
+    return;
+}
+
+/**
+ * Read report settings from drivingView properties
+ *
+ * @param view Archi view with settings in properties
+ * @returns settings object with read properties
+ */
+function getSettings(view) {
+    let settings = new Object();
+    settings.drivingView = { value: null, desc: `A drivingView must have this property (true)` };
+    settings.includeTableOfView = { value: true, desc: `Print for every view a table with elements (true/false)` };
+    settings.includeTableOfAllViews = { value: false, desc: `Print a table with all elements (true/false)` };
+    settings.tableOneLineDoc = { value: false, desc: `Shorten element documentation (true/false)` };
+    settings.renderViewFormat = { value: "svg", desc: `Image format (svg or png)` };
+    settings.renderViewScale = { value: 2, desc: `Resolution of generated PNG images (1 to 4)` };
+    settings.paragraphNumber = { value: false, desc: `Generate paragraph numbers (true/false)` };
+    settings.path = { value: null, desc: `Path for saving markdown (pop-up if not set)` };
+    settings.author = { value: "", desc: "Name of author" };
+    settings.organisation = { value: "", desc: "Name of organisation" };
+
+    // See https://www.npmjs.com/package/ascii-table
+    let table = new AsciiTable("Change the script behavior with the view properties");
+    table.setHeading("Property", "Value", "Description", "Default");
+    table.setAlign(3, AsciiTable.CENTER);
+
+    // read settings from the driving view properties
+    for (var key in settings) {
+        let defaultValue = settings[`${key}`]["value"];
+        if (defaultValue === null || defaultValue === "") defaultValue = "-";
+        let propValue = "Not set";
+
+        if (view.prop(key) != null) {
+            if (typeof settings[`${key}`]["value"] == "boolean") {
+                settings[`${key}`]["value"] = view.prop(key) == "true";
+            } else {
+                settings[`${key}`]["value"] = view.prop(key);
+            }
+            propValue = view.prop(key);
+        }
+        let truncate = 33;
+        if (propValue.length > truncate) {
+            propValue = `${propValue.slice(0, 6)}...${propValue.slice(9 - truncate)}`;
+        }
+        table.addRow(key, propValue, settings[`${key}`]["desc"], defaultValue);
+    }
+    // show settings in the console
+    console.log(table.toString());
+
+    return settings;
+}
+
+function getFilename(settings, view) {
+    // create filename from view name
+    settings.filename = {
+        value: `${new Date().toLocaleDateString("nl-NL")}_${view.name}.md`.replace(FILE_UNVALID_CHAR, "_"),
+    };
+
+    // skip the popup window if path is set
+    if (settings.path.value) {
+        settings.path.value = settings.path.value.replace(/\\/g, "/");
+    } else {
+        let exportFile = window.promptSaveFile({
+            title: "Save to file",
+            filterExtensions: ["*.md"],
+            fileName: settings.filename.value,
+        });
+        if (exportFile) {
+            exportFile = exportFile.replace(/\\/g, "/");
+            settings.path.value = exportFile.substring(0, exportFile.lastIndexOf("/")); // path without slash
+            settings.filename.value = exportFile.substring(exportFile.lastIndexOf("/") + 1); //, exportFile.lastIndexOf("."))
+        }
+    }
+}
+
+function saveReport(settings, markdownString) {
+    console.log(`Markdown report saved to:`);
+    console.log(`- directory: ${settings.path.value}`);
+    console.log(`- filename:  ${settings.filename.value}`);
+
+    $.fs.writeFile(`${settings.path.value}/${settings.filename.value}`, markdownString);
+}
+
+/**
+ * Generate first page
+ */
+function firstPage(settings, drivingView) {
+    let markdownString = `# ${drivingView.name}\n`;
+
+    //replace hard returns in documentation for markdown consistency
+    var text = drivingView.documentation ;
+    text = text.replace(/\r\n/g, '\n\n');
+    markdownString += text;
+    markdownString += `\n\n`;
+    //old: markdownString += drivingView.documentation ? `${drivingView.documentation}\n` : "";
+
+    markdownString += `${settings.author.value}\n`;
+    markdownString += `${settings.organisation.value}\n`;
+    markdownString += `Report generated at: ${new Date().toLocaleDateString("nl-NL")}  ${new Date().toLocaleTimeString(
+        "nl-NL"
+    )}\n\n`;
+
+    return markdownString;
+}
+
+/**
+ *   add the given object to the contentlist and create a heading
+ *   if the object has documentation, also create a paragraph
+ *
+ * @param report object for passing on markdown strings
+ * @param settings object with report settings
+ * @param pLevel use recursion depth as paragraph level
+ * @param pParagraphNr paragraph number for heading
+ * @param pObject current group or view
+ * @param pTypeText type of current object
+ */
+function addSection(report, settings, pLevel, pParagraphNr, pObject, pTypeText) {
+    // add optional paragraph number
+    let heading = settings.paragraphNumber.value ? `${pParagraphNr} ` : "";
+    heading += pObject.name;
+
+    // add heading to table of content
+    report.content += `${"  ".repeat(pLevel - 1)}* [${heading}](${stringToLink(heading)})\n`;
+
+    // insert heading in report
+    if (pLevel == 1) {
+        report.body += '<div style="page-break-before: always;"></div>';
+        report.body += "\n\n---\n\n";
+    }
+    report.body += `${"#".repeat(pLevel + 1)} ${heading}\n\n`;
+
+    // insert documentation of the object in report
+    if (pObject.documentation != "") {
+
+        //replace hard returns in documentation for markdown consistency
+        var text = pObject.documentation ;
+        text = text.replace(/\r\n/g, '\n\n');
+        report.body += text;
+        report.body += `\n\n`;
+        // old: report.body += `${pObject.documentation}\n`;
+    }
+    console.log(`${">".repeat(pLevel)} ${pTypeText}: ${pObject.name}`);
+}
+
+/**
+ * Add a rendered image of the view in the report
+ *
+ * @param settings object with report settings
+ * @param view      view object to render
+ * @returns
+ */
+function printView(settings, view) {
+    let markdownString = "";
+    let options = { scale: settings.renderViewScale.value, margin: settings.renderViewScale.value * 10 };
+    let format = settings.renderViewFormat.value;
+
+    // save view in a subdirectory with the name of markdown file
+    let subDirName = settings.filename.value.substring(0, settings.filename.value.lastIndexOf("."));
+    let absoluteDir = `${settings.path.value}/${subDirName}`;
+    let imageFile = `${view.name}.${format}`.replace(FILE_UNVALID_CHAR, "_");
+
+    // create subdir
+    let dirObject = new Packages.java.io.File(absoluteDir);
+    dirObject.mkdir();
+
+    let imageURL = `${subDirName}/${imageFile}`;
+
+    if (format == "svg") {
+        $.model.renderViewToSVG(view, `${absoluteDir}/${imageFile}`, true);
+    } else {
+        $.model.renderViewToFile(view, `${absoluteDir}/${imageFile}`, format.toUpperCase(), options);
+    }
+
+    let viewWidth = viewSize(view);
+    markdownString += `<figure align="center">\n`;
+    markdownString += `  <img width="${Math.round(viewWidth.width * 1.2)}" src="${imageURL}" alt="${view.name}">\n`;
+    markdownString += `  <figcaption><i>${view.name}</i></figcaption>\n`;
+    markdownString += `</figure>\n\n`;
+
+    return markdownString;
+}
+
+/**
+ * printTableAllViews
+ *  create a table with all elements of all views referenced in the driving view
+ *
+ * @param settings object with report settings
+ * @param drivingView view with view references
+ */
+function printTableAllViews(settings, drivingView) {
+    var markdownString = "";
+    var allElements = [];
+
+    console.log(`>> Collecting elements from the views:`);
+    // loop over all reference-views of the driving view
+    $(drivingView)
+        .find("diagram-model-reference")
+        .each(function (viewRef) {
+            let view = viewRef.getRefView();
+            $(view)
+                .find("element")
+                .not("junction")
+                .each(function (element) {
+                    allElements.push(element.concept);
+                });
+            console.log(`>> - ${view.name}`);
+        });
+    // Sort array of found elements alphabetical
+    allElements.sort(sortAlphabetic);
+
+    markdownString += `<table>\n`;
+    markdownString += `  <thead>\n`;
+    markdownString += `    <tr>\n`;
+    markdownString += `      <th>Element</th>\n`;
+    markdownString += `      <th>Type</th>\n`;
+    markdownString += `      <th>Documentatie</th>\n`;
+    markdownString += `    </tr>\n`;
+    markdownString += `  </thead>\n`;
+    markdownString += `  <tbody>\n`;
+
+    let uniqueRowSet = new Set();
+    for (let j = 0; j < allElements.length; j++) {
+        let e = allElements[j];
+        if (!uniqueRowSet.has(e.id)) {
+            markdownString += `    <tr valign="top")>\n`;
+            markdownString += `      <td>${e.name}</td>\n`;
+            markdownString += `      <td>${e.type}</td>\n`;
+            markdownString += `      <td>${printElementDoc(settings, e.documentation)}</td>\n`;
+            markdownString += `    </tr>\n`;
+        }
+        uniqueRowSet.add(e.id);
+    }
+    markdownString += `  </tbody>\n`;
+    markdownString += `</table>\n\n`;
+
+    console.log(`>> collected elements: ${allElements.length}`);
+    console.log(`>> all elements without duplicates: ${uniqueRowSet.size}`);
+
+    return markdownString;
+}
+
+/**
+ * create a hierarchic table of the given view
+ * - elements are sorted from left to right en top to bottom like reading
+ * - embedded elements are printed below their parents
+ *
+ * generate inline HTML table and not a markdown table. Markdown does not support:
+ * - Cell content must be on one line only
+ * - merging cells over columns
+ *
+ * @param settings object with report settings
+ * @param view Archi view object
+ */
+function printTableHierarchic(settings, view) {
+    let markdownString = "";
+
+    // determine for the given view the deepest level of embedding of children in children
+    var maxLevel = getMaxEmbedding(0, view);
+
+    markdownString += `<table>\n`;
+    markdownString += `  <thead>\n`;
+    markdownString += `    <tr>\n`;
+    markdownString += `      <th colspan="${maxLevel}" width="20%">Element</th>\n`;
+    markdownString += `      <th rowspan="2" width="80%">Documentation</th>\n`;
+    markdownString += `    </tr>\n`;
+    markdownString += `  </thead>\n`;
+    markdownString += `  <tbody>\n`;
+
+    // to show all hierarchy levels, you have to 'define' a column for every level (hack)
+    // without these 'empty' columnheaders, no indendation is shown for deeper levels
+    // markdownString += `    <tr style="display:none;">`; // negates the hack
+    markdownString += `    <tr>`;
+
+    // create columns for all levels +1 for the documentation
+    for (let i = 0; i < maxLevel + 1; i++) {
+        markdownString += `<td></td>`; // "font-size: 100% line-height: 10000.5em"
+    }
+    markdownString += `</tr>\n`;
+
+    // print a row for every child of the given view. Indent the child's name depending on the level of embedding
+    markdownString += printTableRow(settings, 0, maxLevel, false, view);
+
+    markdownString += `  </tbody>\n`;
+    markdownString += `</table>\n\n`;
+
+    return markdownString;
+}
+
+/**
+ * recursive function
+ * walk through the view and return the deepest level of embedding of the given view
+ *
+ * @param level current recursion level
+ * @param pObject Archi object, a view or a visual element
+ * @returns integer with embedding level
+ */
+function getMaxEmbedding(level, pObject) {
+    let elementsOfLevel = $(pObject).children("element").add("diagram-model-group");
+    let visualGroupOfLevel = $(pObject).children("diagram-model-group");
+    childrenOfLevel = elementsOfLevel.add(visualGroupOfLevel);
+
+    // stop condition
+    if (childrenOfLevel.size() == 0) {
+        return level;
+    }
+
+    let maxLevel = 0;
+    childrenOfLevel.each(function (c) {
+        // children of visual objects are skipped
+        recurseLevel = getMaxEmbedding(level + 1, c);
+        if (maxLevel < recurseLevel) {
+            maxLevel = recurseLevel;
+        }
+    });
+    return maxLevel;
+}
+
+/**
+ * recursive function
+ * walk through the view and return a table row for every child and the child's children
+ *
+ * @param settings object with report settings
+ * @param pLevel current level
+ * @param pMaxLevel maximum level of embedding.
+ * @param pChildLineIsWritten boolean, true if the current object is a duplicate in the current level
+ * @param pObject Archi object, a view or a visual element
+ * @returns string with one or more table rows
+ */
+function printTableRow(settings, pLevel, pMaxLevel, pChildLineIsWritten, pObject) {
+    let markdownString = "";
+    let childArray = [];
+
+    let elementsOfLevel = $(pObject).children("element").add("diagram-model-group").not("junction");
+    let visualGroupOfLevel = $(pObject).children("diagram-model-group");
+    childrenOfLevel = elementsOfLevel.add(visualGroupOfLevel);
+
+    // skip legenda, perhaps this should be more explicit
+    if (pObject.name.toLowerCase() == "legenda" && pObject.type == "diagram-model-group") {
+        return "";
+    }
+
+    childrenOfLevel.each(function (c) {
+        // children of visual objects are skipped
+        childArray.push(c);
+    });
+
+    // Write table line for every visual child element of view and children
+    if (pObject.type !== "archimate-diagram-model") {
+        // Skip duplicate elements if element has no children
+        if (!pChildLineIsWritten || childArray.length > 0) {
+            markdownString += `    <tr valign="top")>\n`;
+            markdownString += pLevel > 1 ? `      <td colspan="${pLevel - 1}"></td>\n` : "";
+            markdownString += `      <td colspan="${pMaxLevel - pLevel + 1}">${pObject.name}</td>\n`;
+            markdownString += `      <td>${printElementDoc(settings, pObject.documentation)}</td>\n`;
+            markdownString += `    </tr>\n`;
+
+            // console.log(`${">".repeat(pLevel)} ${pObject.name}`);
+        } else {
+            // console.log(`${">".repeat(pLevel+1)} Skip row for duplicate ${pObject.name}`)
+        }
+    }
+
+    // stop if element has no children
+    if (childArray.length == 0) {
+        return markdownString;
+    }
+
+    // Sort array of embedded children from left to right and top to bottom like reading
+    childArray.sort(sortPosition);
+
+    // set for checking if there are multiple visual objects of a concept
+    let conceptIdOfChildSet = new Set();
+    for (let i = 0; i < childArray.length; i++) {
+        let ChildLineIsWritten = false;
+        if (childArray[i].type != "diagram-model-group") {
+            ChildLineIsWritten = conceptIdOfChildSet.has(childArray[i].concept.id);
+        }
+
+        markdownString += printTableRow(settings, pLevel + 1, pMaxLevel, ChildLineIsWritten, childArray[i]);
+
+        if (childArray[i].type != "diagram-model-group") {
+            conceptIdOfChildSet.add(childArray[i].concept.id);
+        }
+    }
+    return markdownString;
+}
+
+/**
+ * convert documention string to html
+ *   optional reduce documentation to first line (should contain the definition)
+ *
+ * @param settings object with report settings
+ * @param text string with element documentation
+ * @returns string with HTML
+ */
+function printElementDoc(settings, text) {
+    const LINE_EXPRESSION = /\r\n|\n\r|\n|\r/g; // expression symbols order is very important
+
+    if (settings.tableOneLineDoc.value) {
+        let lines = text.split(LINE_EXPRESSION);
+        return markdown2html(lines[0]);
+    } else {
+        return markdown2html(text);
+    }
+}
+
+/**
+ * convert a markdown string to html for use in the HTML tables
+ * uses http://showdownjs.com
+ *
+ * @param md markdownstring
+ * @returns string with HTML
+ */
+function markdown2html(md) {
+    var converter = new showdown.Converter();
+    return converter.makeHtml(md);
+}
+
+/**
+ * Sorting function
+ *   sort visual object from left to right and top to bottom like reading
+ *
+ * @param a visual object
+ * @param b visual object
+ */
+function sortPosition(a, b) {
+    // Archi 0.0 point is the top left corner
+    // - direction of x coordinates is left to right
+    // - direction of y coordinates is top to bottom
+    if (
+        a.bounds.y + a.bounds.height > b.bounds.y && // a LeftBottom > b LeftTop
+        a.bounds.y < b.bounds.y + b.bounds.height //a LeftTop < b LeftBottom
+    )
+        // if boxes are on the same 'line', compare horizontal coordinates
+        return a.bounds.x - b.bounds.x;
+    // else compare vertical coordinates
+    else return a.bounds.y - b.bounds.y;
+}
+
+/**
+ * Sorting function
+ *
+ * @param a Archi object
+ * @param b Archi object
+ */
+function sortAlphabetic(a, b) {
+    if (a.name.toLowerCase() < b.name.toLowerCase()) return -1;
+    if (a.name.toLowerCase() > b.name.toLowerCase()) return 1;
+    return 0;
+}
+
+/**
+ * calculate width and height of given view
+ */
+function viewSize(view) {
+    let xMin = 1000;
+    let yMin = 1000;
+    let xMax = 0;
+    let yMax = 0;
+
+    $(view)
+        .children()
+        .not("diagram-model-connection")
+        .not("relationship")
+        .each(function (o) {
+            if (o.bounds.x + o.bounds.width > xMax) xMax = o.bounds.x + o.bounds.width;
+            if (o.bounds.x < xMin) xMin = o.bounds.x;
+            if (o.bounds.y + o.bounds.height > yMax) yMax = o.bounds.y + o.bounds.height;
+            if (o.bounds.y < yMin) yMin = o.bounds.y;
+        });
+    return { width: xMax - xMin, height: yMax - yMin };
+}
+
+/**
+ * create a valid anchor link for a heading
+ *  remove unvalid characters from a link
+ *  this function thanks to Steven Mileham
+ *
+ * @param str
+ * @returns string with valid link
+ */
+function stringToLink(str) {
+    let regex = /[\[\]()\#\\\/\"\.:;,–]/gi;
+
+    return (
+        "#" +
+        str
+            .toLowerCase()
+            .replace(regex, "")
+            .replaceAll(" ", "-")
+            .replaceAll("--", "-")
+            .replaceAll("<", "lt")
+            .replaceAll(">", "gt")
+    );
+}
+// JavaScript source code
